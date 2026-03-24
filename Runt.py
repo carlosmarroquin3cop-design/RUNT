@@ -1844,6 +1844,195 @@ def procesar_consulta_interno(driver, cedula, placa, fila_numero, es_reintento=F
     return None, fila_numero
 
 # ═════════════════════════════════════════════════════════════
+# RECTIFICACIÓN DE REGISTROS FALLIDOS
+# ═════════════════════════════════════════════════════════════
+
+def extraer_registros_fallidos():
+    """
+    Lee el estado_runt.json y devuelve los registros cuyo status
+    contiene 'Falló' o 'Error' para ser rectificados.
+    Retorna lista de dicts con: cedula, placa, status
+    """
+    estado = cargar_estado()
+    procesados = estado.get("processed_records", [])
+    fallidos = [
+        r for r in procesados
+        if "Falló" in r.get("status", "") or "Error" in r.get("status", "")
+    ]
+    logging.info(f"📋 Registros fallidos encontrados en estado: {len(fallidos)}")
+    return fallidos
+
+
+def rectificar_registros_fallidos(driver, datos_unicos):
+    """
+    Segunda fase: reintenta los registros marcados como fallidos.
+    - Usa while True para reintentar sin límite arbitrario.
+    - Se detiene solo cuando:
+        1. Se obtienen datos exitosos.
+        2. Se confirma 'sin personas asociadas'.
+        3. Se alcanza el límite de seguridad MAX_INTENTOS_ABSOLUTO (10 intentos).
+    - Genera reporte final con: recuperados, sin_personas, falló_persistente
+      e intentos promedio.
+    """
+    MAX_INTENTOS_ABSOLUTO = 10
+
+    fallidos = extraer_registros_fallidos()
+
+    if not fallidos:
+        logging.info(f"\n{'='*70}")
+        logging.info("✅ RECTIFICACIÓN: No hay registros fallidos que rectificar.")
+        logging.info(f"{'='*70}\n")
+        return
+
+    # Construir mapa placa → (cedula_asociado, cedula_propietario, fila)
+    mapa_datos = {}
+    for cedula_asoc, cedula_prop, placa, fila, sheet_name in datos_unicos:
+        mapa_datos[placa] = (cedula_asoc, cedula_prop, fila)
+
+    logging.info(f"\n{'='*70}")
+    logging.info(f"🔄 INICIANDO FASE DE RECTIFICACIÓN")
+    logging.info(f"   Registros a rectificar: {len(fallidos)}")
+    logging.info(f"   Límite de seguridad por registro: {MAX_INTENTOS_ABSOLUTO} intentos")
+    logging.info(f"{'='*70}\n")
+
+    recuperados = []
+    sin_personas = []
+    fallo_persistente = []
+    intentos_por_registro = []
+
+    for idx, registro in enumerate(fallidos):
+        cedula = registro.get("cedula", "")
+        placa = registro.get("placa", "")
+
+        logging.info(f"\n{'='*70}")
+        logging.info(f"🔄 RECTIFICACIÓN - Registro {idx + 1}/{len(fallidos)} (Placa {placa})")
+        logging.info(f"{'='*70}")
+
+        # Obtener cédula propietario del mapa original (si existe)
+        if placa in mapa_datos:
+            cedula_asoc, cedula_prop, fila_numero = mapa_datos[placa]
+        else:
+            cedula_asoc = cedula
+            cedula_prop = cedula
+            fila_numero = 0
+
+        intento = 0
+        resultado_final = None
+        resultado_tipo = None  # "recuperado" | "sin_personas" | "fallo_persistente"
+
+        while True:
+            intento += 1
+            logging.info(f"   Intento {intento}...")
+
+            try:
+                resultado, _ = procesar_consulta_interno(
+                    driver,
+                    cedula_asoc,
+                    placa,
+                    fila_numero,
+                    es_reintento=True
+                )
+
+                if resultado:
+                    estado_res = resultado.get("estado", "")
+
+                    if estado_res == "Exitoso":
+                        logging.info(f"   Intento {intento}: ✅ Datos obtenidos → DETENER (Guardado en sheets)")
+                        resultado_final = resultado
+                        resultado_tipo = "recuperado"
+
+                        # Guardar en hojas de Sheets
+                        resultado["cedula"] = cedula_asoc
+                        guardar_en_sheets([resultado])
+                        if resultado.get("datos_vehiculo"):
+                            escribir_datos_vehiculo_sheets(resultado["datos_vehiculo"])
+                        guardar_resultado_en_resultados(
+                            cedula_asoc, cedula_prop, placa, cedula_asoc, "Exitoso"
+                        )
+                        guardar_estado(
+                            cedula_asoc, placa, "Exitoso",
+                            0, len(fallidos),
+                            resultado.get("datos_vehiculo"),
+                            resultado.get("datos_soat"),
+                            resultado.get("datos_técnicos")
+                        )
+                        break
+
+                    elif estado_res == "Exitoso - Sin personas asociadas":
+                        logging.info(f"   Intento {intento}: Modal 'sin personas' → DETENER (Confirmado sin datos)")
+                        resultado_tipo = "sin_personas"
+                        guardar_resultado_en_resultados(
+                            cedula_asoc, cedula_prop, placa, cedula_asoc,
+                            "Sin personas asociadas"
+                        )
+                        guardar_estado(
+                            cedula_asoc, placa, "Sin personas asociadas",
+                            0, len(fallidos)
+                        )
+                        break
+
+            except Exception as e:
+                logging.error(f"   Intento {intento}: ❌ Error inesperado: {e}")
+
+            # Verificar límite de seguridad (aplica tanto a fallo normal como a excepción)
+            if intento >= MAX_INTENTOS_ABSOLUTO:
+                logging.warning(
+                    f"   Intentos 1-{intento}: Límite de seguridad alcanzado → DETENER (Falló persistente)"
+                )
+                resultado_tipo = "fallo_persistente"
+                guardar_resultado_en_resultados(
+                    cedula_asoc, cedula_prop, placa, cedula_asoc,
+                    "Falló persistente"
+                )
+                guardar_estado(
+                    cedula_asoc, placa, "Falló persistente",
+                    0, len(fallidos)
+                )
+                break
+
+            if resultado_tipo is None:
+                logging.info(f"   Intento {intento}: Sin resultado definitivo → Reintentando...")
+
+        intentos_por_registro.append(intento)
+
+        if resultado_tipo == "recuperado":
+            recuperados.append({"placa": placa, "intentos": intento})
+        elif resultado_tipo == "sin_personas":
+            sin_personas.append({"placa": placa, "intentos": intento})
+        else:
+            fallo_persistente.append({"placa": placa, "intentos": intento})
+
+        # Preparar siguiente consulta si no es el último registro
+        if idx < len(fallidos) - 1:
+            try:
+                driver.get("https://portalpublico.runt.gov.co/#/consulta-vehiculo/consulta/consulta-ciudadana")
+                time.sleep(3)
+                limpiar_todos_los_campos(driver)
+                time.sleep(1)
+            except Exception as e:
+                logging.warning(f"⚠️ Error al preparar siguiente consulta en rectificación: {e}")
+
+    # ─── REPORTE FINAL DE RECTIFICACIÓN ───
+    def _promedio_intentos(lista):
+        return sum(r["intentos"] for r in lista) / len(lista) if lista else 0
+
+    total = len(fallidos)
+    prom_recuperados = _promedio_intentos(recuperados)
+    prom_sin_personas = _promedio_intentos(sin_personas)
+    prom_total = sum(intentos_por_registro) / len(intentos_por_registro) if intentos_por_registro else 0
+
+    logging.info(f"\n{'='*70}")
+    logging.info("📊 REPORTE FINAL DE RECTIFICACIÓN:")
+    logging.info(f"   ✅ Recuperados: {len(recuperados)} registros (promedio: {prom_recuperados:.1f} intentos)")
+    logging.info(f"   ❌ Sin personas: {len(sin_personas)} registros (promedio: {prom_sin_personas:.1f} intentos)")
+    logging.info(f"   ⚠️ Falló persistente: {len(fallo_persistente)} registros (alcanzaron límite de {MAX_INTENTOS_ABSOLUTO} intentos)")
+    logging.info(f"   📈 Intentos totales en rectificación: {sum(intentos_por_registro)}")
+    logging.info(f"   📈 Intentos promedio por registro: {prom_total:.1f}")
+    logging.info(f"   📦 Registros procesados efectivamente: {len(recuperados) + len(sin_personas)}/{total}")
+    logging.info(f"{'='*70}\n")
+
+
+# ═════════════════════════════════════════════════════════════
 # MAIN
 # ═════════════════════════════════════════════════════════════
 
@@ -1986,12 +2175,22 @@ def main():
                     time.sleep(1)
 
         logging.info(f"\n{'='*70}")
-        logging.info(f"✅ PROCESO FINALIZADO - TODOS LOS REGISTROS PROCESADOS")
+        logging.info(f"✅ PROCESO PRINCIPAL FINALIZADO - TODOS LOS REGISTROS PROCESADOS")
         logging.info(f"{'='*70}\n")
         
         captcha_logger.info(f"\n{'='*70}")
-        captcha_logger.info(f"✅ PROCESO FINALIZADO")
+        captcha_logger.info(f"✅ PROCESO PRINCIPAL FINALIZADO")
         captcha_logger.info(f"{'='*70}\n")
+
+        # ═══ FASE 2: RECTIFICACIÓN DE FALLIDOS ═══
+        logging.info(f"\n{'='*70}")
+        logging.info(f"🔄 FASE 2: RECTIFICACIÓN AUTOMÁTICA DE REGISTROS FALLIDOS")
+        logging.info(f"{'='*70}\n")
+        rectificar_registros_fallidos(driver, datos_unicos)
+
+        logging.info(f"\n{'='*70}")
+        logging.info(f"✅ PROCESO COMPLETADO - FASE PRINCIPAL + RECTIFICACIÓN")
+        logging.info(f"{'='*70}\n")
 
     except Exception as e:
         logging.error(f"❌ Error principal: {e}", exc_info=True)
