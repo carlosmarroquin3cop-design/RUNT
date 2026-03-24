@@ -1844,6 +1844,200 @@ def procesar_consulta_interno(driver, cedula, placa, fila_numero, es_reintento=F
     return None, fila_numero
 
 # ═════════════════════════════════════════════════════════════
+# FASE DE RECTIFICACIÓN
+# ═════════════════════════════════════════════════════════════
+
+def extraer_registros_fallidos(datos_unicos):
+    """
+    Lee estado_runt.json y extrae los registros marcados como fallidos,
+    buscando sus datos originales en datos_unicos.
+
+    Retorna: lista de (cedula_asociado, cedula_propietario, placa, fila_numero, sheet_origen)
+    """
+    estado = cargar_estado()
+    procesados = estado.get("processed_records", [])
+
+    # Mapear (cedula, placa) -> status para los registros fallidos
+    fallidos_por_clave = {}
+    for registro in procesados:
+        status = registro.get("status", "")
+        if "Falló" in status:
+            clave = (registro.get("cedula"), registro.get("placa"))
+            fallidos_por_clave[clave] = status
+
+    if not fallidos_por_clave:
+        return []
+
+    # Mapear de vuelta a datos_unicos para recuperar cedula_propietario y fila
+    resultado = []
+    for entrada in datos_unicos:
+        cedula_asociado, cedula_propietario, placa, fila_numero, sheet_origen = entrada
+        clave = (cedula_asociado, placa)
+        if clave in fallidos_por_clave:
+            resultado.append(entrada)
+
+    return resultado
+
+
+def generar_reporte_rectificacion(total_fallidos, recuperados, sin_datos, aun_fallidos, duracion_seg):
+    """Muestra estadísticas finales de la fase de rectificación."""
+    tasa = (recuperados / total_fallidos * 100) if total_fallidos > 0 else 0
+
+    logging.info(f"\n{'═'*70}")
+    logging.info(f"📊 REPORTE FINAL DE RECTIFICACIÓN")
+    logging.info(f"{'═'*70}")
+    logging.info(f"   🔄 Total fallidos iniciales : {total_fallidos}")
+    logging.info(f"   ✅ Recuperados exitosamente : {recuperados}")
+    logging.info(f"   ❌ Sin datos (sin asociados): {sin_datos}")
+    logging.info(f"   ⚠️  Aún fallidos            : {aun_fallidos}")
+    logging.info(f"   📈 Tasa de recuperación     : {tasa:.1f}%")
+    logging.info(f"   ⏱️  Duración rectificación   : {duracion_seg:.1f}s")
+    logging.info(f"{'═'*70}\n")
+
+    captcha_logger.info(f"\n{'═'*70}")
+    captcha_logger.info(f"📊 REPORTE RECTIFICACIÓN: {recuperados}/{total_fallidos} recuperados ({tasa:.1f}%)")
+    captcha_logger.info(f"{'═'*70}\n")
+
+
+def _actualizar_estado_registro(cedula, placa, nuevo_status):
+    """Actualiza el status del registro más reciente en estado_runt.json."""
+    estado_json = cargar_estado()
+    for reg in reversed(estado_json.get("processed_records", [])):
+        if reg.get("cedula") == cedula and reg.get("placa") == placa:
+            reg["status"] = nuevo_status
+            reg["timestamp"] = datetime.now().isoformat()
+            break
+    with open(ESTADO_FILE, "w", encoding="utf-8") as f:
+        json.dump(estado_json, f, indent=2, ensure_ascii=False)
+
+
+def rectificar_registros_fallidos(driver, datos_unicos, max_reintentos=3):
+    """
+    Rectifica registros marcados como fallidos intentando procesarlos nuevamente.
+    Solo se ejecuta al final del procesamiento principal.
+
+    Retorna: dict con estadísticas { 'recuperados': int, 'sin_datos': int, 'aun_fallidos': int }
+    """
+    inicio_rectificacion = time.time()
+
+    fallidos = extraer_registros_fallidos(datos_unicos)
+    total_fallidos = len(fallidos)
+
+    if total_fallidos == 0:
+        logging.info("✅ No hay registros fallidos para rectificar.")
+        return {"recuperados": 0, "sin_datos": 0, "aun_fallidos": 0}
+
+    logging.info(f"\n{'═'*70}")
+    logging.info(f"🔄 INICIO FASE DE RECTIFICACIÓN")
+    logging.info(f"   Registros fallidos a reintentar: {total_fallidos} (máx. {max_reintentos} intentos c/u)")
+    logging.info(f"{'═'*70}\n")
+
+    captcha_logger.info(f"\n{'═'*70}")
+    captcha_logger.info(f"🔄 RECTIFICACIÓN: {total_fallidos} registros")
+    captcha_logger.info(f"{'═'*70}\n")
+
+    recuperados = 0
+    sin_datos = 0
+    aun_fallidos = 0
+
+    for idx, (cedula_asociado, cedula_propietario, placa, fila_numero, sheet_origen) in enumerate(fallidos):
+        logging.info(f"\n{'─'*70}")
+        logging.info(f"🔄 Rectificando [{idx + 1}/{total_fallidos}]: Placa {placa} | Cédula {cedula_asociado}")
+        logging.info(f"{'─'*70}")
+
+        intento_exitoso = False
+
+        for intento in range(max_reintentos):
+            logging.info(f"   Intento {intento + 1}/{max_reintentos}...")
+
+            try:
+                resultado, _ = procesar_consulta_interno(
+                    driver,
+                    cedula_asociado,
+                    placa,
+                    fila_numero,
+                    es_reintento=True
+                )
+
+                if resultado is None and cedula_propietario and cedula_propietario != cedula_asociado:
+                    logging.info(f"   🔄 Reintentando con cédula propietario: {cedula_propietario}")
+                    resultado, _ = procesar_consulta_interno(
+                        driver,
+                        cedula_propietario,
+                        placa,
+                        fila_numero,
+                        es_reintento=True
+                    )
+
+                if resultado:
+                    estado_res = resultado.get("estado", "")
+
+                    if estado_res == "Exitoso":
+                        logging.info(f"   ✅ RECUPERADO en intento {intento + 1}: {placa}")
+                        resultado["cedula"] = cedula_asociado
+
+                        # Guardar en sheets
+                        guardar_en_sheets([resultado])
+                        if resultado.get("datos_vehiculo"):
+                            escribir_datos_vehiculo_sheets(resultado["datos_vehiculo"])
+
+                        guardar_resultado_en_resultados(
+                            cedula_asociado, cedula_propietario, placa,
+                            cedula_asociado, "Exitoso"
+                        )
+
+                        _actualizar_estado_registro(cedula_asociado, placa, "Exitoso - Rectificado")
+
+                        recuperados += 1
+                        intento_exitoso = True
+                        break
+
+                    elif "Sin personas" in estado_res:
+                        logging.info(f"   ❌ SIN DATOS confirmado para {placa}: {estado_res}")
+
+                        _actualizar_estado_registro(cedula_asociado, placa, "Sin datos - Confirmado")
+
+                        sin_datos += 1
+                        intento_exitoso = True
+                        break
+
+            except Exception as e:
+                logging.error(f"   ⚠️ Error en intento {intento + 1} para {placa}: {e}")
+
+            # Pausa entre reintentos
+            if intento < max_reintentos - 1:
+                time.sleep(3)
+                try:
+                    driver.get("https://portalpublico.runt.gov.co/#/consulta-vehiculo/consulta/consulta-ciudadana")
+                    time.sleep(3)
+                    limpiar_todos_los_campos(driver)
+                except Exception:
+                    pass
+
+        if not intento_exitoso:
+            logging.warning(f"   ⚠️ Sigue fallando tras {max_reintentos} intentos: {placa}")
+
+            _actualizar_estado_registro(cedula_asociado, placa, "Falló - Error persistente")
+
+            aun_fallidos += 1
+
+        # Preparar página para siguiente registro
+        if idx < total_fallidos - 1:
+            try:
+                time.sleep(2)
+                driver.get("https://portalpublico.runt.gov.co/#/consulta-vehiculo/consulta/consulta-ciudadana")
+                time.sleep(3)
+                limpiar_todos_los_campos(driver)
+            except Exception:
+                pass
+
+    duracion = time.time() - inicio_rectificacion
+    generar_reporte_rectificacion(total_fallidos, recuperados, sin_datos, aun_fallidos, duracion)
+
+    return {"recuperados": recuperados, "sin_datos": sin_datos, "aun_fallidos": aun_fallidos}
+
+
+# ═════════════════════════════════════════════════════════════
 # MAIN
 # ═════════════════════════════════════════════════════════════
 
@@ -1992,6 +2186,13 @@ def main():
         captcha_logger.info(f"\n{'='*70}")
         captcha_logger.info(f"✅ PROCESO FINALIZADO")
         captcha_logger.info(f"{'='*70}\n")
+
+        # ═══ FASE DE RECTIFICACIÓN ═══
+        if datos_unicos:
+            logging.info(f"\n{'═'*70}")
+            logging.info(f"🔄 INICIANDO FASE DE RECTIFICACIÓN AUTOMÁTICA")
+            logging.info(f"{'═'*70}\n")
+            rectificar_registros_fallidos(driver, datos_unicos)
 
     except Exception as e:
         logging.error(f"❌ Error principal: {e}", exc_info=True)
