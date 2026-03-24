@@ -69,13 +69,8 @@ captcha_logger.addHandler(file_handler_captcha)
 def estructura_estado_inicial():
     """Crea la estructura inicial del archivo de estado"""
     return {
-        "last_execution": None,
-        "last_cedula": None,
-        "last_placa": None,
-        "last_status": None,
-        "processed_records": [],
-        "current_index": 0,
-        "total_records": 0
+        "historial": [],
+        "current_index": 0
     }
 
 def cargar_estado():
@@ -89,59 +84,46 @@ def cargar_estado():
             return estructura_estado_inicial()
     return estructura_estado_inicial()
 
-def guardar_estado(cedula, placa, status, index, total, datos_vehiculo=None, datos_soat=None, datos_tecnica=None):
-    """Guarda el estado actual con información detallada"""
-    estado_anterior = cargar_estado()
-    
-    registro_actual = {
-        "timestamp": datetime.now().isoformat(),
-        "cedula": cedula,
-        "placa": placa,
-        "status": status,
-        "datos_vehiculo": datos_vehiculo or {},
-        "datos_soat": datos_soat or [],
-        "datos_tecnica": datos_tecnica or []
-    }
-    
-    historial = estado_anterior.get("processed_records", [])
-    historial.append(registro_actual)
-    
-    estado = {
-        "last_execution": datetime.now().isoformat(),
-        "last_cedula": cedula,
-        "last_placa": placa,
-        "last_status": status,
-        "processed_records": historial,
-        "current_index": index,
-        "total_records": total
-    }
-    
-    with open(ESTADO_FILE, "w", encoding="utf-8") as f:
-        json.dump(estado, f, indent=2, ensure_ascii=False)
-    
-    logging.info(f"💾 Estado guardado: {placa} - {status} (Total historial: {len(historial)} registros)")
-
-def agregar_registro_procesado(cedula, placa, status, datos_vehiculo=None, datos_soat=None, datos_tecnica=None):
-    """Agrega un registro a la lista de procesados"""
+def guardar_estado(cedula_asociado, cedula_propietario, placa, status, index, total):
+    """Guarda el estado actual de forma concisa"""
     estado = cargar_estado()
     
-    registro = {
-        "timestamp": datetime.now().isoformat(),
-        "cedula": cedula,
+    registro_actual = {
         "placa": placa,
-        "status": status,
-        "datos_vehiculo": datos_vehiculo or {},
-        "datos_soat": datos_soat or [],
-        "datos_tecnica": datos_tecnica or []
+        "cedula_asociado": cedula_asociado,
+        "cedula_propietario": cedula_propietario,
+        "cedula_usada": cedula_asociado,
+        "status": status
     }
     
-    if "processed_records" not in estado:
-        estado["processed_records"] = []
+    # Actualizar o agregar registro
+    registro_existe = False
+    for i, reg in enumerate(estado["historial"]):
+        if reg["placa"] == placa and reg["cedula_asociado"] == cedula_asociado:
+            estado["historial"][i] = registro_actual
+            registro_existe = True
+            logging.info(f"🔄 Estado ACTUALIZADO: {placa} - {status}")
+            break
     
-    estado["processed_records"].append(registro)
+    if not registro_existe:
+        estado["historial"].append(registro_actual)
+        logging.info(f"➕ Registro NUEVO: {placa} - {status}")
+    
+    estado["current_index"] = index
     
     with open(ESTADO_FILE, "w", encoding="utf-8") as f:
         json.dump(estado, f, indent=2, ensure_ascii=False)
+    
+    logging.info(f"💾 Estado guardado: {placa} - {status}")
+
+def obtener_proximo_pendiente():
+    """Obtiene el próximo registro PENDIENTE del historial"""
+    estado = cargar_estado()
+    for i, reg in enumerate(estado["historial"]):
+        if reg["status"] == "Pendiente":
+            return reg, i
+    return None, -1
+
 # ═════════════════════════════════════════════════════════════
 # DICCIONARIO DE TEMPLATES (CAPTCHA)
 # ═════════════════════════════════════════════════════════════
@@ -1760,7 +1742,7 @@ def procesar_consulta_interno(driver, cedula, placa, fila_numero, es_reintento=F
                                     "datos_soat": ["No disponible"] * 7,
                                     "datos_técnicos": ["No disponible"] * 7
                                 }
-                                agregar_registro_procesado(cedula, placa, "Exitoso - Sin personas", None, ["No disponible"] * 7, ["No disponible"] * 7)
+                                guardar_estado(cedula, None, placa, "Exitoso - Sin personas", 0, 0)
                                 return resultado, fila_numero
 
                             elif error_detectado == "error_desconocido":
@@ -1824,7 +1806,7 @@ def procesar_consulta_interno(driver, cedula, placa, fila_numero, es_reintento=F
                                     "datos_técnicos": rtm_datos
                                 }
 
-                                agregar_registro_procesado(cedula, placa, "Exitoso", datos_vehiculo, soat_datos, rtm_datos)
+                                guardar_estado(cedula, None, placa, "Exitoso", 0, 0)
                                 
                                 return resultado, fila_numero
 
@@ -1840,7 +1822,7 @@ def procesar_consulta_interno(driver, cedula, placa, fila_numero, es_reintento=F
             continue
     
     logging.error(f"❌ No se completó la consulta para {placa} tras {max_reintentos} intentos")
-    agregar_registro_procesado(cedula, placa, "Falló - Error técnico")
+    guardar_estado(cedula, None, placa, "Falló - Error técnico", 0, 0)
     return None, fila_numero
 
 # ═════════════════════════════════════════════════════════════
@@ -1857,20 +1839,8 @@ def main():
     driver.maximize_window()
 
     try:
-        # ═══ CARGAR DATOS Y ESTADO ANTERIOR ═══
+        # ═══ CARGAR DATOS ═══
         datos_unicos = obtener_datos_unicos()
-        estado_anterior = cargar_estado()
-        
-        last_cedula = estado_anterior.get("last_cedula")
-        last_placa = estado_anterior.get("last_placa")
-        last_status = estado_anterior.get("last_status")
-        
-        logging.info(f"\n{'='*70}")
-        logging.info(f"📋 ESTADO ANTERIOR CARGADO")
-        logging.info(f"   Última placa: {last_placa}")
-        logging.info(f"   Última cédula: {last_cedula}")
-        logging.info(f"   Último estado: {last_status}")
-        logging.info(f"{'='*70}\n")
         
         if not datos_unicos:
             logging.info(f"\n{'='*70}")
@@ -1881,19 +1851,30 @@ def main():
         
         # ═══ LÓGICA DE REANUDACIÓN ═══
         inicio_desde = 0
+        proximo_pendiente, _ = obtener_proximo_pendiente()
         
-        if last_placa and last_status:
+        if proximo_pendiente:
+            logging.info(f"\n{'='*70}")
+            logging.info(f"🔄 REANUDANDO DESDE REGISTRO PENDIENTE:")
+            logging.info(f"   Placa: {proximo_pendiente['placa']}")
+            logging.info(f"   Cédula Asociado: {proximo_pendiente['cedula_asociado']}")
+            logging.info(f"{'='*70}\n")
             for idx, (ced_asoc, ced_prop, plac, fil, sheet_name) in enumerate(datos_unicos):
-                if plac == last_placa and ced_asoc == last_cedula:
-                    if last_status == "Exitoso":
-                        inicio_desde = idx + 1
-                        logging.info(f"✅ Retomando desde índice {inicio_desde} (después de {last_placa})")
-                    elif last_status in ["Pendiente", "Error", "Falló"]:
-                        inicio_desde = idx
-                        logging.info(f"🔄 Reintentando desde índice {inicio_desde} ({last_placa})")
-                    else:
-                        inicio_desde = idx
+                if plac == proximo_pendiente["placa"] and ced_asoc == proximo_pendiente["cedula_asociado"]:
+                    inicio_desde = idx
+                    logging.info(f"🔄 Reintentando desde índice {inicio_desde} ({plac})")
                     break
+        else:
+            estado_actual = cargar_estado()
+            procesados = {(r["placa"], r["cedula_asociado"]) for r in estado_actual.get("historial", [])}
+            inicio_desde = 0
+            for idx, (ced_asoc, ced_prop, plac, fil, sheet_name) in enumerate(datos_unicos):
+                if (plac, ced_asoc) not in procesados:
+                    inicio_desde = idx
+                    break
+            else:
+                inicio_desde = len(datos_unicos)
+            logging.info(f"✅ Continuando desde índice {inicio_desde}")
         
         logging.info(f"\n{'='*70}")
         logging.info(f"🚀 Iniciando proceso para {len(datos_unicos)} registros PENDIENTES")
@@ -1924,14 +1905,12 @@ def main():
             if resultado:
                 estado_resultado = resultado.get("estado", "Pendiente")
                 guardar_estado(
-                    cedula_asociado, 
-                    placa, 
-                    estado_resultado, 
-                    i, 
-                    len(datos_unicos),
-                    resultado.get("datos_vehiculo"),  # NUEVO
-                    resultado.get("datos_soat"),
-                    resultado.get("datos_técnicos")
+                    cedula_asociado,
+                    cedula_propietario,
+                    placa,
+                    estado_resultado,
+                    i,
+                    len(datos_unicos)
                 )
                 
                 # Guardar en hoja "Datos Runt"
