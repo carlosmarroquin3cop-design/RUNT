@@ -67,79 +67,103 @@ captcha_logger.addHandler(file_handler_captcha)
 # ═════════════════════════════════════════════════════════════
 
 def estructura_estado_inicial():
-    """Crea la estructura inicial del archivo de estado"""
+    """Crea la estructura inicial del archivo de estado (formato simplificado)"""
     return {
+        "resumen": {
+            "placas_procesadas": {},
+            "ultima_actualizacion": None
+        },
+        "historial_completo": [],
         "last_execution": None,
-        "last_cedula": None,
-        "last_placa": None,
-        "last_status": None,
-        "processed_records": [],
         "current_index": 0,
         "total_records": 0
     }
 
 def cargar_estado():
-    """Carga el estado del archivo JSON"""
+    """Carga el estado del archivo JSON y migra automáticamente el formato antiguo al nuevo"""
     if os.path.exists(ESTADO_FILE):
         try:
             with open(ESTADO_FILE, "r", encoding="utf-8") as f:
-                return json.load(f)
+                estado = json.load(f)
+
+            # Migrar formato antiguo (con processed_records) al nuevo (con resumen.placas_procesadas)
+            if "resumen" not in estado:
+                logging.info("🔄 Migrando estado al formato simplificado...")
+                estado_nuevo = estructura_estado_inicial()
+                estado_nuevo["last_execution"] = estado.get("last_execution")
+                estado_nuevo["current_index"] = estado.get("current_index", 0)
+                estado_nuevo["total_records"] = estado.get("total_records", 0)
+
+                for registro in estado.get("processed_records", []):
+                    placa = registro.get("placa")
+                    status = registro.get("status", "Pendiente")
+                    if placa:
+                        # Mantener "Exitoso" si ya existe para no reprocesar placas completadas
+                        if estado_nuevo["resumen"]["placas_procesadas"].get(placa) != "Exitoso":
+                            estado_nuevo["resumen"]["placas_procesadas"][placa] = status
+                        estado_nuevo["historial_completo"].append({
+                            "timestamp": registro.get("timestamp"),
+                            "cedula": registro.get("cedula"),
+                            "placa": placa,
+                            "status": status
+                        })
+
+                estado_nuevo["resumen"]["ultima_actualizacion"] = estado.get("last_execution")
+
+                # Guardar formato migrado
+                with open(ESTADO_FILE, "w", encoding="utf-8") as f:
+                    json.dump(estado_nuevo, f, indent=2, ensure_ascii=False)
+                logging.info(f"✅ Migración completada: {len(estado_nuevo['resumen']['placas_procesadas'])} placas migradas")
+                return estado_nuevo
+
+            return estado
         except json.JSONDecodeError:
             logging.warning("⚠️ Archivo de estado corrupto, creando nuevo...")
             return estructura_estado_inicial()
     return estructura_estado_inicial()
 
-def guardar_estado(cedula, placa, status, index, total, datos_vehiculo=None, datos_soat=None, datos_tecnica=None):
-    """Guarda el estado actual con información detallada"""
+def guardar_estado(cedula, placa, status, index, total):
+    """Guarda el estado actual en formato simplificado (solo resumen de placas)"""
     estado_anterior = cargar_estado()
-    
-    registro_actual = {
-        "timestamp": datetime.now().isoformat(),
-        "cedula": cedula,
-        "placa": placa,
-        "status": status,
-        "datos_vehiculo": datos_vehiculo or {},
-        "datos_soat": datos_soat or [],
-        "datos_tecnica": datos_tecnica or []
-    }
-    
-    historial = estado_anterior.get("processed_records", [])
-    historial.append(registro_actual)
-    
+
+    resumen = estado_anterior.get("resumen", {"placas_procesadas": {}, "ultima_actualizacion": None})
+    resumen["placas_procesadas"][placa] = status
+    resumen["ultima_actualizacion"] = datetime.now().isoformat()
+
     estado = {
+        "resumen": resumen,
+        "historial_completo": estado_anterior.get("historial_completo", []),
         "last_execution": datetime.now().isoformat(),
-        "last_cedula": cedula,
-        "last_placa": placa,
-        "last_status": status,
-        "processed_records": historial,
         "current_index": index,
         "total_records": total
     }
-    
+
     with open(ESTADO_FILE, "w", encoding="utf-8") as f:
         json.dump(estado, f, indent=2, ensure_ascii=False)
-    
-    logging.info(f"💾 Estado guardado: {placa} - {status} (Total historial: {len(historial)} registros)")
 
-def agregar_registro_procesado(cedula, placa, status, datos_vehiculo=None, datos_soat=None, datos_tecnica=None):
-    """Agrega un registro a la lista de procesados"""
+    logging.info(f"💾 Estado guardado: {placa} - {status} (Total placas: {len(resumen['placas_procesadas'])})")
+
+def agregar_registro_procesado(cedula, placa, status):
+    """Agrega un registro al resumen y al historial (sin datos completos del vehículo)"""
     estado = cargar_estado()
-    
-    registro = {
+
+    resumen = estado.get("resumen", {"placas_procesadas": {}, "ultima_actualizacion": None})
+    resumen["placas_procesadas"][placa] = status
+    resumen["ultima_actualizacion"] = datetime.now().isoformat()
+    estado["resumen"] = resumen
+
+    registro_historial = {
         "timestamp": datetime.now().isoformat(),
         "cedula": cedula,
         "placa": placa,
-        "status": status,
-        "datos_vehiculo": datos_vehiculo or {},
-        "datos_soat": datos_soat or [],
-        "datos_tecnica": datos_tecnica or []
+        "status": status
     }
-    
-    if "processed_records" not in estado:
-        estado["processed_records"] = []
-    
-    estado["processed_records"].append(registro)
-    
+
+    if "historial_completo" not in estado:
+        estado["historial_completo"] = []
+
+    estado["historial_completo"].append(registro_historial)
+
     with open(ESTADO_FILE, "w", encoding="utf-8") as f:
         json.dump(estado, f, indent=2, ensure_ascii=False)
 # ═════════════════════════════════════════════════════════════
@@ -1760,7 +1784,7 @@ def procesar_consulta_interno(driver, cedula, placa, fila_numero, es_reintento=F
                                     "datos_soat": ["No disponible"] * 7,
                                     "datos_técnicos": ["No disponible"] * 7
                                 }
-                                agregar_registro_procesado(cedula, placa, "Exitoso - Sin personas", None, ["No disponible"] * 7, ["No disponible"] * 7)
+                                agregar_registro_procesado(cedula, placa, "Exitoso - Sin personas")
                                 return resultado, fila_numero
 
                             elif error_detectado == "error_desconocido":
@@ -1824,7 +1848,7 @@ def procesar_consulta_interno(driver, cedula, placa, fila_numero, es_reintento=F
                                     "datos_técnicos": rtm_datos
                                 }
 
-                                agregar_registro_procesado(cedula, placa, "Exitoso", datos_vehiculo, soat_datos, rtm_datos)
+                                agregar_registro_procesado(cedula, placa, "Exitoso")
                                 
                                 return resultado, fila_numero
 
@@ -1860,16 +1884,14 @@ def main():
         # ═══ CARGAR DATOS Y ESTADO ANTERIOR ═══
         datos_unicos = obtener_datos_unicos()
         estado_anterior = cargar_estado()
-        
-        last_cedula = estado_anterior.get("last_cedula")
-        last_placa = estado_anterior.get("last_placa")
-        last_status = estado_anterior.get("last_status")
-        
+
+        placas_procesadas = estado_anterior.get("resumen", {}).get("placas_procesadas", {})
+        last_execution = estado_anterior.get("last_execution")
+
         logging.info(f"\n{'='*70}")
         logging.info(f"📋 ESTADO ANTERIOR CARGADO")
-        logging.info(f"   Última placa: {last_placa}")
-        logging.info(f"   Última cédula: {last_cedula}")
-        logging.info(f"   Último estado: {last_status}")
+        logging.info(f"   Placas procesadas: {len(placas_procesadas)}")
+        logging.info(f"   Último proceso: {last_execution or 'N/A'}")
         logging.info(f"{'='*70}\n")
         
         if not datos_unicos:
@@ -1880,37 +1902,25 @@ def main():
             return
         
         # ═══ LÓGICA DE REANUDACIÓN ═══
-        inicio_desde = 0
-        
-        if last_placa and last_status:
-            for idx, (ced_asoc, ced_prop, plac, fil, sheet_name) in enumerate(datos_unicos):
-                if plac == last_placa and ced_asoc == last_cedula:
-                    if last_status == "Exitoso":
-                        inicio_desde = idx + 1
-                        logging.info(f"✅ Retomando desde índice {inicio_desde} (después de {last_placa})")
-                    elif last_status in ["Pendiente", "Error", "Falló"]:
-                        inicio_desde = idx
-                        logging.info(f"🔄 Reintentando desde índice {inicio_desde} ({last_placa})")
-                    else:
-                        inicio_desde = idx
-                    break
-        
+        pendientes = [
+            (ced_asoc, ced_prop, plac, fil, sheet_name)
+            for ced_asoc, ced_prop, plac, fil, sheet_name in datos_unicos
+            if placas_procesadas.get(plac) != "Exitoso"
+        ]
+
         logging.info(f"\n{'='*70}")
-        logging.info(f"🚀 Iniciando proceso para {len(datos_unicos)} registros PENDIENTES")
-        logging.info(f"   Comenzando desde: índice {inicio_desde}")
+        logging.info(f"🚀 Iniciando proceso: {len(datos_unicos)} registros totales, {len(pendientes)} pendientes")
         logging.info(f"{'='*70}\n")
-        
+
         captcha_logger.info(f"{'='*70}")
-        captcha_logger.info(f"🚀 INICIANDO - {len(datos_unicos)} REGISTROS PENDIENTES")
-        captcha_logger.info(f"   Desde índice: {inicio_desde}")
+        captcha_logger.info(f"🚀 INICIANDO - {len(pendientes)} REGISTROS PENDIENTES")
         captcha_logger.info(f"{'='*70}\n")
 
         # ═══ PROCESAR REGISTROS ═══
-        for i in range(inicio_desde, len(datos_unicos)):
-            cedula_asociado, cedula_propietario, placa, fila_numero, sheet_origen = datos_unicos[i]
+        for i, (cedula_asociado, cedula_propietario, placa, fila_numero, sheet_origen) in enumerate(pendientes):
             
             logging.info(f"\n{'='*70}")
-            logging.info(f"📊 Procesando [{i + 1}/{len(datos_unicos)}]: Placa {placa} (desde {sheet_origen})")
+            logging.info(f"📊 Procesando [{i + 1}/{len(pendientes)}]: Placa {placa} (desde {sheet_origen})")
             logging.info(f"{'='*70}")
             
             resultado, fila = procesar_consulta(
@@ -1924,31 +1934,24 @@ def main():
             if resultado:
                 estado_resultado = resultado.get("estado", "Pendiente")
                 guardar_estado(
-                    cedula_asociado, 
-                    placa, 
-                    estado_resultado, 
-                    i, 
-                    len(datos_unicos),
-                    resultado.get("datos_vehiculo"),  # NUEVO
-                    resultado.get("datos_soat"),
-                    resultado.get("datos_técnicos")
+                    cedula_asociado,
+                    placa,
+                    estado_resultado,
+                    i,
+                    len(pendientes)
                 )
-                
+
                 # Guardar en hoja "Datos Runt"
                 guardar_en_sheets([resultado])
-                
-                # ==================== NUEVO: Guardar en hoja "Datos Vehiculo" ====================
-                # INSERTA ESTAS LÍNEAS DESPUÉS DE guardar_en_sheets
-                
+
                 if "datos_vehiculo" in resultado and resultado["datos_vehiculo"]:
                     escribir_datos_vehiculo_sheets(resultado["datos_vehiculo"])
                     logging.info(f"✅ Datos completos de {placa} guardados en 'Datos Vehiculo'")
-                # ==================== FIN NUEVO ====================
-                
+
                 logging.info(f"✅ Datos de {placa} guardados en Sheets")
 
             # ═══ PREPARAR SIGUIENTE CONSULTA ═══
-            if i < len(datos_unicos) - 1:
+            if i < len(pendientes) - 1:
                 try:
                     logging.info("🔄 Preparando siguiente consulta...")
                     limpiar_todos_los_campos(driver)
