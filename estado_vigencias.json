@@ -1,0 +1,126 @@
+{
+  "version": "1.0",
+  "tipo": "vigencias",
+  "soat": {
+    "procesadas": {
+      "GKG48G": {
+        "estado": "fallido",
+        "fecha": "2026-03-27T15:50:25.731911",
+        "ciclo": 5
+      },
+      "BCE87F": {
+        "estado": "fallido",
+        "fecha": "2026-03-27T15:50:35.855256",
+        "ciclo": 5
+      },
+      "DDE75F": {
+        "estado": "fallido",
+        "fecha": "2026-03-27T15:50:40.928508",
+        "ciclo": 5
+      },
+      "GCG05G": {
+        "estado": "fallido",
+        "fecha": "2026-03-27T15:50:45.994133",
+        "ciclo": 5
+      },
+      "GID48E": {
+        "estado": "fallido",
+        "fecha": "2026-03-27T15:50:51.055049",
+        "ciclo": 5
+      },
+      "EIQ70G": {
+        "estado": "fallido",
+        "fecha": "2026-03-27T15:50:56.120628",
+        "ciclo": 5
+      },
+      "DHF37E": {
+        "estado": "fallido",
+        "fecha": "2026-03-27T15:51:01.181953",
+        "ciclo": 5
+      },
+      "ETI91F": {
+        "estado": "fallido",
+        "fecha": "2026-03-27T15:51:06.251275",
+        "ciclo": 5
+      },
+      "EMF96F": {
+        "estado": "fallido",
+        "fecha": "2026-03-27T15:51:11.319412",
+        "ciclo": 5
+      }
+    },
+    "ultima_ejecucion": "2026-03-27T15:52:22.707025",
+    "total_exitosas": 0,
+    "total_fallidas": 39,
+    "ultimo_ciclo": 5
+  },
+  "tecnomecanica": {
+    "procesadas": {
+      "GVC39F": {
+        "estado": "fallido",
+        "fecha": "2026-03-27T15:51:21.756081",
+        "ciclo": 5
+      },
+      "BCE87F": {
+        "estado": "fallido",
+        "fecha": "2026-03-27T15:51:31.902594",
+        "ciclo": 5
+      },
+      "CRN34F": {
+        "estado": "fallido",
+        "fecha": "2026-03-27T15:51:36.982202",
+        "ciclo": 5
+      },
+      "BMC50G": {
+        "estado": "fallido",
+        "fecha": "2026-03-27T15:51:42.086682",
+        "ciclo": 5
+      },
+      "FWY74G": {
+        "estado": "fallido",
+        "fecha": "2026-03-27T15:51:47.156736",
+        "ciclo": 5
+      },
+      "DDE75F": {
+        "estado": "fallido",
+        "fecha": "2026-03-27T15:51:52.223604",
+        "ciclo": 5
+      },
+      "GID48E": {
+        "estado": "fallido",
+        "fecha": "2026-03-27T15:51:57.289347",
+        "ciclo": 5
+      },
+      "EIQ70G": {
+        "estado": "fallido",
+        "fecha": "2026-03-27T15:52:02.369748",
+        "ciclo": 5
+      },
+      "BSD29F": {
+        "estado": "fallido",
+        "fecha": "2026-03-27T15:52:07.448194",
+        "ciclo": 5
+      },
+      "BSA40F": {
+        "estado": "fallido",
+        "fecha": "2026-03-27T15:52:12.596613",
+        "ciclo": 5
+      },
+      "DHF37E": {
+        "estado": "fallido",
+        "fecha": "2026-03-27T15:52:17.704924",
+        "ciclo": 5
+      }
+    },
+    "ultima_ejecucion": "2026-03-27T15:52:22.707031",
+    "total_exitosas": 0,
+    "total_fallidas": 47,
+    "ultimo_ciclo": 5
+  },
+  "estadisticas": {
+    "total_ciclos": 5,
+    "fecha_inicio": "2026-03-27T11:46:14.025876",
+    "fecha_ultimo_ciclo": "2026-03-27T15:52:22.707003",
+    "total_consultas": 86
+  }
+}
