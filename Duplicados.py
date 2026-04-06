@@ -10,6 +10,9 @@ from datetime import datetime
 
 BASE_PATH = Path(r"C:\Users\cmarroquin\Music\RuntPro")
 GOOGLE_CREDS = BASE_PATH / "prueba-de-gmail-486215-345473339c47.json"
+LOGS_FOLDER = BASE_PATH / "Log_duplicados"
+LOGS_FOLDER.mkdir(parents=True, exist_ok=True)
+
 
 # ═════════════════════════════════════════════════════════════
 # LOGGING
@@ -20,7 +23,7 @@ logging.basicConfig(
     format='%(asctime)s - %(levelname)s - %(message)s',
     handlers=[
         logging.StreamHandler(),
-        logging.FileHandler("limpiar_duplicados.log", encoding='utf-8')
+        logging.FileHandler(str(LOGS_FOLDER / "limpiar_duplicados.log"), encoding='utf-8')
     ]
 )
 

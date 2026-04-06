@@ -5,122 +5,209 @@
     "procesadas": {
       "GKG48G": {
         "estado": "fallido",
-        "fecha": "2026-03-27T15:50:25.731911",
-        "ciclo": 5
+        "fecha": "2026-03-30T17:28:58.676291",
+        "ciclo": 8
       },
       "BCE87F": {
         "estado": "fallido",
-        "fecha": "2026-03-27T15:50:35.855256",
-        "ciclo": 5
+        "fecha": "2026-03-30T17:29:08.776087",
+        "ciclo": 8
       },
       "DDE75F": {
         "estado": "fallido",
-        "fecha": "2026-03-27T15:50:40.928508",
-        "ciclo": 5
+        "fecha": "2026-03-30T17:29:13.824839",
+        "ciclo": 8
       },
       "GCG05G": {
         "estado": "fallido",
-        "fecha": "2026-03-27T15:50:45.994133",
-        "ciclo": 5
+        "fecha": "2026-03-30T17:29:18.870768",
+        "ciclo": 8
       },
       "GID48E": {
         "estado": "fallido",
-        "fecha": "2026-03-27T15:50:51.055049",
-        "ciclo": 5
+        "fecha": "2026-03-30T17:29:23.916897",
+        "ciclo": 8
       },
       "EIQ70G": {
         "estado": "fallido",
-        "fecha": "2026-03-27T15:50:56.120628",
-        "ciclo": 5
+        "fecha": "2026-03-30T17:29:34.025285",
+        "ciclo": 8
       },
       "DHF37E": {
         "estado": "fallido",
-        "fecha": "2026-03-27T15:51:01.181953",
-        "ciclo": 5
+        "fecha": "2026-03-30T17:29:44.112803",
+        "ciclo": 8
       },
       "ETI91F": {
         "estado": "fallido",
-        "fecha": "2026-03-27T15:51:06.251275",
-        "ciclo": 5
+        "fecha": "2026-03-30T17:29:54.215645",
+        "ciclo": 8
       },
       "EMF96F": {
         "estado": "fallido",
         "fecha": "2026-03-27T15:51:11.319412",
         "ciclo": 5
+      },
+      "HVK55H": {
+        "estado": "fallido",
+        "fecha": "2026-03-30T17:29:39.071839",
+        "ciclo": 8
+      },
+      "ASU81H": {
+        "estado": "fallido",
+        "fecha": "2026-03-30T17:30:04.306629",
+        "ciclo": 8
+      },
+      "HXL92E": {
+        "estado": "fallido",
+        "fecha": "2026-03-30T17:28:43.539497",
+        "ciclo": 8
+      },
+      "IEC01G": {
+        "estado": "fallido",
+        "fecha": "2026-03-30T17:28:53.630591",
+        "ciclo": 8
+      },
+      "ILT06H": {
+        "estado": "fallido",
+        "fecha": "2026-03-30T17:29:49.166382",
+        "ciclo": 8
+      },
+      "JGB16D": {
+        "estado": "fallido",
+        "fecha": "2026-03-30T17:29:03.727733",
+        "ciclo": 8
+      },
+      "KRH26F": {
+        "estado": "fallido",
+        "fecha": "2026-03-30T17:29:28.966639",
+        "ciclo": 8
+      },
+      "LAH81H": {
+        "estado": "fallido",
+        "fecha": "2026-03-30T17:29:59.265506",
+        "ciclo": 8
+      },
+      "LEA72E": {
+        "estado": "fallido",
+        "fecha": "2026-03-30T17:28:48.588181",
+        "ciclo": 8
       }
     },
-    "ultima_ejecucion": "2026-03-27T15:52:22.707025",
+    "ultima_ejecucion": "2026-03-30T17:30:39.901664",
     "total_exitosas": 0,
-    "total_fallidas": 39,
-    "ultimo_ciclo": 5
+    "total_fallidas": 160,
+    "ultimo_ciclo": 8
   },
   "tecnomecanica": {
     "procesadas": {
       "GVC39F": {
-        "estado": "fallido",
-        "fecha": "2026-03-27T15:51:21.756081",
-        "ciclo": 5
+        "estado": "exitoso",
+        "fecha": "2026-03-30T10:01:44.650298",
+        "vigencia": "171464934",
+        "ciclo": 1
       },
       "BCE87F": {
-        "estado": "fallido",
-        "fecha": "2026-03-27T15:51:31.902594",
-        "ciclo": 5
+        "estado": "exitoso",
+        "fecha": "2026-03-30T10:03:01.503508",
+        "vigencia": "172910284",
+        "ciclo": 1
       },
       "CRN34F": {
-        "estado": "fallido",
-        "fecha": "2026-03-27T15:51:36.982202",
-        "ciclo": 5
+        "estado": "exitoso",
+        "fecha": "2026-03-30T10:04:18.950415",
+        "vigencia": "173376326",
+        "ciclo": 1
       },
       "BMC50G": {
-        "estado": "fallido",
-        "fecha": "2026-03-27T15:51:42.086682",
-        "ciclo": 5
+        "estado": "exitoso",
+        "fecha": "2026-03-30T10:05:36.846322",
+        "vigencia": "173416611",
+        "ciclo": 1
       },
       "FWY74G": {
-        "estado": "fallido",
-        "fecha": "2026-03-27T15:51:47.156736",
-        "ciclo": 5
+        "estado": "exitoso",
+        "fecha": "2026-03-30T10:07:06.520282",
+        "vigencia": "174003283",
+        "ciclo": 1
       },
       "DDE75F": {
-        "estado": "fallido",
-        "fecha": "2026-03-27T15:51:52.223604",
-        "ciclo": 5
+        "estado": "exitoso",
+        "fecha": "2026-03-30T10:08:23.429281",
+        "vigencia": "175683233",
+        "ciclo": 1
       },
       "GID48E": {
-        "estado": "fallido",
-        "fecha": "2026-03-27T15:51:57.289347",
-        "ciclo": 5
+        "estado": "exitoso",
+        "fecha": "2026-03-30T10:10:45.176856",
+        "vigencia": "175639333",
+        "ciclo": 1
       },
       "EIQ70G": {
-        "estado": "fallido",
-        "fecha": "2026-03-27T15:52:02.369748",
-        "ciclo": 5
+        "estado": "exitoso",
+        "fecha": "2026-03-30T10:12:50.230298",
+        "vigencia": "176311590",
+        "ciclo": 1
       },
       "BSD29F": {
-        "estado": "fallido",
-        "fecha": "2026-03-27T15:52:07.448194",
-        "ciclo": 5
+        "estado": "exitoso",
+        "fecha": "2026-03-30T10:14:08.432367",
+        "vigencia": "177355869",
+        "ciclo": 1
       },
       "BSA40F": {
-        "estado": "fallido",
-        "fecha": "2026-03-27T15:52:12.596613",
-        "ciclo": 5
+        "estado": "exitoso",
+        "fecha": "2026-03-30T10:15:54.297075",
+        "vigencia": "180331263",
+        "ciclo": 1
       },
       "DHF37E": {
+        "estado": "exitoso",
+        "fecha": "2026-03-30T10:17:11.647338",
+        "vigencia": "180007197",
+        "ciclo": 1
+      },
+      "EVX16C": {
+        "estado": "exitoso",
+        "fecha": "2026-03-30T10:18:28.553805",
+        "vigencia": "180544509",
+        "ciclo": 1
+      },
+      "HXL92E": {
         "estado": "fallido",
-        "fecha": "2026-03-27T15:52:17.704924",
-        "ciclo": 5
+        "fecha": "2026-03-30T17:30:14.709020",
+        "ciclo": 8
+      },
+      "JGB16D": {
+        "estado": "fallido",
+        "fecha": "2026-03-30T17:30:24.812813",
+        "ciclo": 8
+      },
+      "KRH26F": {
+        "estado": "fallido",
+        "fecha": "2026-03-30T17:30:29.856448",
+        "ciclo": 8
+      },
+      "LEA72E": {
+        "estado": "fallido",
+        "fecha": "2026-03-30T17:30:19.755081",
+        "ciclo": 8
+      },
+      "LGU77G": {
+        "estado": "fallido",
+        "fecha": "2026-03-30T17:30:34.899833",
+        "ciclo": 8
       }
     },
-    "ultima_ejecucion": "2026-03-27T15:52:22.707031",
-    "total_exitosas": 0,
-    "total_fallidas": 47,
-    "ultimo_ciclo": 5
+    "ultima_ejecucion": "2026-03-30T17:30:39.901671",
+    "total_exitosas": 12,
+    "total_fallidas": 75,
+    "ultimo_ciclo": 8
   },
   "estadisticas": {
-    "total_ciclos": 5,
+    "total_ciclos": 8,
     "fecha_inicio": "2026-03-27T11:46:14.025876",
-    "fecha_ultimo_ciclo": "2026-03-27T15:52:22.707003",
-    "total_consultas": 86
+    "fecha_ultimo_ciclo": "2026-03-30T17:30:39.901627",
+    "total_consultas": 247
   }
 }

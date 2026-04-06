@@ -23,14 +23,9 @@ from pathlib import Path
 import gspread
 from google.oauth2.service_account import Credentials
 
-# Importar funciones del Runt.py
-from Runt import (
-    iniciar_driver, cerrar_driver, limpiar_todos_los_campos,
-    procesar_consulta_interno, GOOGLE_CREDS
-)
 
 # Configuración logging - USAR ARCHIVOS PROPIOS
-LOG_DIR = Path("logs")
+LOG_DIR = Path("logs_vigencias")
 LOG_DIR.mkdir(exist_ok=True)
 
 # Logger principal
@@ -42,6 +37,15 @@ logging.basicConfig(
         logging.FileHandler(LOG_DIR / "vigencias_automatizacion.log", encoding='utf-8')
     ]
 )
+
+
+# Importar funciones del Runt.py
+from Runt import (
+    iniciar_driver, cerrar_driver, limpiar_todos_los_campos,
+    procesar_consulta_interno, GOOGLE_CREDS
+)
+
+
 
 # Logger separado para resultados exitosos
 exitosos_logger = logging.getLogger('exitosos')

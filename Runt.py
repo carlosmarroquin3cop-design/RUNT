@@ -35,14 +35,68 @@ CAPTCHA_LEIDOS_FOLDER.mkdir(parents=True, exist_ok=True)
 TEMPLATE_FOLDER = BASE_PATH / "templates"
 TEMPLATE_FOLDER.mkdir(parents=True, exist_ok=True)
 
+LOGS_FOLDER = BASE_PATH / "Escritura_Runt_principal"
+LOGS_FOLDER.mkdir(parents=True, exist_ok=True)
+
 TESSERACT_PATH = r"C:\Users\cmarroquin\AppData\Local\Programs\Tesseract-OCR\tesseract.exe"
 pytesseract.pytesseract.tesseract_cmd = TESSERACT_PATH
 
 GOOGLE_CREDS = BASE_PATH / "prueba-de-gmail-486215-345473339c47.json"
-ESTADO_FILE = "estado_runt.json"
+ESTADO_FILE = str(LOGS_FOLDER / "estado_runt.json")
 
 
 REGISTROS_ANTES_REINICIO = 6  # Reiniciar sesión cada 6 registros
+
+# ═════════════════════════════════════════════════════════════
+# NORMALIZACIÓN DE PLACAS (CORREGIR CARACTERES EXTRAÑOS)
+# ═════════════════════════════════════════════════════════════
+
+def normalizar_placa(placa):
+    """
+    Normaliza caracteres de placa que pueden venir con codificación incorrecta.
+    Convierte caracteres cirílicos o especiales a sus equivalentes latinos.
+    """
+    if not placa:
+        return placa
+    
+    # Diccionario de caracteres problemáticos -> caracteres correctos
+    mapa_caracteres = {
+        # Letras cirílicas que parecen latinas
+        'А': 'A',  # A cirílica
+        'В': 'B',  # B cirílica
+        'Е': 'E',  # E cirílica
+        'Ѕ': 'S',  # S cirílica
+        'К': 'K',  # K cirílica
+        'М': 'M',  # M cirílica
+        'Н': 'H',  # H cirílica ← PROBLEMA PRINCIPAL
+        'О': 'O',  # O cirílica
+        'Р': 'P',  # P cirílica
+        'С': 'C',  # C cirílica
+        'Т': 'T',  # T cirílica
+        'Х': 'X',  # X cirílica
+        'У': 'Y',  # U cirílica
+        # Caracteres Unicode especiales
+        '𝗛': 'H', '𝙃': 'H', '𝐇': 'H', '𝐻': 'H', '𝑯': 'H', 'ℍ': 'H',
+        # Números especiales
+        '𝟬': '0', '𝟭': '1', '𝟮': '2', '𝟯': '3', '𝟰': '4',
+        '𝟱': '5', '𝟲': '6', '𝟳': '7', '𝟴': '8', '𝟵': '9',
+        # Acentos
+        'Ñ': 'N', 'ñ': 'n', 'Í': 'I', 'Ó': 'O', 'Ú': 'U', 'Á': 'A', 'É': 'E',
+    }
+    
+    placa_normalizada = str(placa).strip().upper()
+    cambios_realizados = False
+    
+    for malo, bueno in mapa_caracteres.items():
+        if malo in placa_normalizada:
+            placa_normalizada = placa_normalizada.replace(malo, bueno)
+            cambios_realizados = True
+    
+    if cambios_realizados:
+        logging.info(f"🔧 Placa normalizada: '{placa}' → '{placa_normalizada}'")
+    
+    return placa_normalizada
+    
 
 # ═════════════════════════════════════════════════════════════
 # LOGGING
@@ -53,14 +107,14 @@ logging.basicConfig(
     format='%(asctime)s - %(levelname)s - %(message)s',
     handlers=[
         logging.StreamHandler(),
-        logging.FileHandler("automatizacion.log", encoding='utf-8')
+        logging.FileHandler(str(LOGS_FOLDER / "automatizacion.log"), encoding='utf-8')
     ]
 )
 
 captcha_logger = logging.getLogger('captcha_logger')
 captcha_logger.setLevel(logging.INFO)
 captcha_logger.propagate = False
-file_handler_captcha = logging.FileHandler("captcha_retroalimentacion.log", encoding='utf-8')
+file_handler_captcha = logging.FileHandler(str(LOGS_FOLDER / "captcha_retroalimentacion.log"), encoding='utf-8')
 formatter_captcha = logging.Formatter('%(message)s')
 file_handler_captcha.setFormatter(formatter_captcha)
 captcha_logger.addHandler(file_handler_captcha)
@@ -213,6 +267,221 @@ def agregar_registro_procesado(cedula, placa, status, datos_vehiculo=None, datos
 
 
 
+# ═════════════════════════════════════════════════════════════
+# ⭐ NUEVA FUNCIÓN: COMPARACIÓN DE PLACAS ORIGEN vs DESTINO
+# ═════════════════════════════════════════════════════════════
+
+def comparar_placas_origen_vs_destino():
+    """
+    🔍 COMPARA PLACAS:
+    - ORIGEN: Google Sheets (Motos 0_5, 6_10, 11_15, 16_25)
+    - DESTINO: Google Sheets hoja "Datos Runt" y "Resultados"
+    
+    Retorna:
+    - placas_faltantes: Placas que NO están en destino
+    - placas_procesadas: Placas que YA están en destino
+    - reporte: Diccionario con estadísticas
+    """
+    
+    try:
+        logging.info(f"\n{'='*70}")
+        logging.info(f"🔍 COMPARANDO PLACAS: ORIGEN vs DESTINO")
+        logging.info(f"{'='*70}\n")
+        
+        SCOPES = [
+            "https://spreadsheets.google.com/feeds",
+            "https://www.googleapis.com/auth/spreadsheets",
+            "https://www.googleapis.com/auth/drive"
+        ]
+
+        creds = Credentials.from_service_account_file(
+            str(GOOGLE_CREDS),
+            scopes=SCOPES
+        )
+
+        client = gspread.authorize(creds)
+        
+        # ═══ LEER PLACAS DEL ORIGEN ═══
+        logging.info("📥 Leyendo placas del ORIGEN (Google Sheets hojas Motos)...")
+        
+        sheet_origen = client.open_by_key("1saIDw37nd-rnzZvvKjxUQP41LhXJvSiayYgFRR78N7o")
+        
+        nombres_sheets_origen = ["Motos 0_5", "Motos 6_10", "Motos 11_15", "Motos 16_25"]
+        placas_origen = set()
+        registros_origen = []
+        
+        for nombre_sheet in nombres_sheets_origen:
+            try:
+                worksheet = sheet_origen.worksheet(nombre_sheet)
+                todas_filas = worksheet.get_all_values()
+                
+                # Columna F (índice 5) = Placa
+                placas_col = worksheet.col_values(6)
+                
+                for i, placa in enumerate(placas_col[1:], start=1):  # Saltar encabezado
+                    placa_norm = normalizar_placa(str(placa).strip())
+                    
+                    if placa_norm and placa_norm.lower() != "nan":
+                        placas_origen.add(placa_norm)
+                        registros_origen.append({
+                            "placa": placa_norm,
+                            "fila": i + 1,
+                            "sheet": nombre_sheet
+                        })
+                
+                logging.info(f"   ✓ {nombre_sheet}: {len([p for p in placas_col[1:] if p.strip() and p.lower() != 'nan'])} placas")
+                
+            except Exception as e:
+                logging.warning(f"   ⚠️  Error leyendo {nombre_sheet}: {e}")
+                continue
+        
+        logging.info(f"✅ TOTAL placas en ORIGEN: {len(placas_origen)} únicas")
+        
+        # ═══ LEER PLACAS DEL DESTINO (DATOS RUNT) ═══
+        logging.info("\n📤 Leyendo placas del DESTINO (hoja 'Datos Runt')...")
+        
+        sheet_destino = client.open_by_key("1vs414iH3QVeLoTcY2CExg4kD9eCkXZRRfax_WTlUXPk")
+        
+        try:
+            worksheet_destino = sheet_destino.worksheet("Datos Runt")
+            todas_filas_destino = worksheet_destino.get_all_values()
+            
+            # Columna C (índice 2) = Placa
+            placas_col_destino = worksheet_destino.col_values(3)
+            
+            placas_destino = set()
+            for placa in placas_col_destino[2:]:  # Saltar encabezado
+                placa_norm = normalizar_placa(str(placa).strip())
+                
+                if placa_norm and placa_norm.lower() != "nan":
+                    placas_destino.add(placa_norm)
+            
+            logging.info(f"   ✓ Hoja 'Datos Runt': {len(placas_destino)} placas")
+            
+        except Exception as e:
+            logging.warning(f"   ⚠️  Error leyendo 'Datos Runt': {e}")
+            placas_destino = set()
+        
+        # ═══ LEER PLACAS DEL DESTINO (RESULTADOS) ═══
+        logging.info("\n📤 Leyendo placas del DESTINO (hoja 'Resultados')...")
+        
+        try:
+            worksheet_resultados = sheet_destino.worksheet("Resultados")
+            todas_filas_resultados = worksheet_resultados.get_all_values()
+            
+            # Columna C (índice 2) = Placa
+            placas_col_resultados = worksheet_resultados.col_values(3)
+            
+            placas_resultados = set()
+            for placa in placas_col_resultados[1:]:  # Saltar encabezado
+                placa_norm = normalizar_placa(str(placa).strip())
+                
+                if placa_norm and placa_norm.lower() != "nan":
+                    placas_resultados.add(placa_norm)
+            
+            logging.info(f"   ✓ Hoja 'Resultados': {len(placas_resultados)} placas")
+            
+        except Exception as e:
+            logging.warning(f"   ⚠️  Error leyendo 'Resultados': {e}")
+            placas_resultados = set()
+        
+        # ═══ COMBINAR PLACAS DESTINO ═══
+        placas_destino_combinadas = placas_destino.union(placas_resultados)
+        logging.info(f"   ✓ TOTAL combinadas Datos Runt + Resultados: {len(placas_destino_combinadas)} placas")
+        
+        # ═══ CALCULAR FALTANTES ═══
+        placas_faltantes = placas_origen - placas_destino_combinadas
+        placas_procesadas = placas_origen - placas_faltantes
+        
+        # ═══ GENERAR REPORTE ═══
+        reporte = {
+            "total_origen": len(placas_origen),
+            "total_destino": len(placas_destino_combinadas),
+            "procesadas": len(placas_procesadas),
+            "faltantes": len(placas_faltantes),
+            "porcentaje_completado": (len(placas_procesadas) / len(placas_origen) * 100) if placas_origen else 0
+        }
+        
+        # ═════════════════════════════════════════════════════════════
+        # MOSTRAR REPORTE COMPLETO
+        # ═════════════════════════════════════════════════════════════
+        logging.info(f"\n{'='*70}")
+        logging.info(f"📊 REPORTE COMPARATIVO")
+        logging.info(f"{'='*70}")
+        logging.info(f"\n📥 ORIGEN (Hojas Motos):")
+        logging.info(f"   Total placas: {reporte['total_origen']}")
+        
+        logging.info(f"\n📤 DESTINO (Datos Runt + Resultados):")
+        logging.info(f"   Total placas procesadas: {reporte['total_destino']}")
+        
+        logging.info(f"\n✅ PROCESADAS:")
+        logging.info(f"   {reporte['procesadas']} placas")
+        logging.info(f"   Porcentaje: {reporte['porcentaje_completado']:.1f}%")
+        
+        logging.info(f"\n❌ FALTANTES:")
+        logging.info(f"   {reporte['faltantes']} placas")
+        logging.info(f"   Porcentaje: {(reporte['faltantes']/reporte['total_origen']*100):.1f}%")
+        
+        logging.info(f"{'='*70}\n")
+        
+        # ═══ SI HAY FALTANTES, MOSTRAR LAS PRIMERAS 10 ═══
+        if placas_faltantes:
+            logging.info(f"🔴 PRIMERAS 10 PLACAS FALTANTES:")
+            for i, placa in enumerate(sorted(list(placas_faltantes))[:10], 1):
+                logging.info(f"   {i}. {placa}")
+            
+            if len(placas_faltantes) > 10:
+                logging.info(f"   ... y {len(placas_faltantes) - 10} más")
+        else:
+            logging.info(f"🟢 ¡TODAS LAS PLACAS YA HAN SIDO PROCESADAS!")
+        
+        logging.info(f"\n{'='*70}\n")
+        
+        return list(placas_faltantes), list(placas_procesadas), reporte
+        
+    except Exception as e:
+        logging.error(f"❌ Error en comparación: {e}", exc_info=True)
+        return [], [], {"error": str(e)}
+
+
+def filtrar_datos_por_placas_faltantes(datos_validos, placas_faltantes):
+    """
+    🔧 Filtra los datos válidos para incluir SOLO las placas faltantes
+    
+    Retorna:
+    - datos_filtrados: Solo registros con placas en placas_faltantes
+    - estadisticas: Diccionario con números
+    """
+    
+    placas_faltantes_set = set(placas_faltantes)
+    
+    datos_filtrados = []
+    descartados = []
+    
+    for cedula_a, cedula_p, placa, fila, sheet in datos_validos:
+        if placa in placas_faltantes_set:
+            datos_filtrados.append((cedula_a, cedula_p, placa, fila, sheet))
+        else:
+            descartados.append({
+                "placa": placa,
+                "razon": "Ya procesada"
+            })
+    
+    estadisticas = {
+        "total_validos": len(datos_validos),
+        "ya_procesadas": len(descartados),
+        "por_procesar": len(datos_filtrados)
+    }
+    
+    logging.info(f"\n{'='*70}")
+    logging.info(f"🔧 FILTRADO POR PLACAS FALTANTES")
+    logging.info(f"{'='*70}")
+    logging.info(f"Total datos válidos: {estadisticas['total_validos']}")
+    logging.info(f"Ya procesadas (descartadas): {estadisticas['ya_procesadas']}")
+    logging.info(f"Por procesar (filtradas): {estadisticas['por_procesar']}")
+    logging.info(f"{'='*70}\n")
+    
+    return datos_filtrados, estadisticas
 
 
 
@@ -323,7 +592,7 @@ def obtener_datos_unicos():
                 for i in range(1, min_len):  # Comienza en 1 para saltar encabezado
                     cedula_asoc = str(cedulas_asociado[i]).strip()
                     cedula_prop = str(cedulas_propietario[i]).strip()
-                    placa = str(placas[i]).strip()
+                    placa = normalizar_placa(str(placas[i]).strip())
                     
                     # ═══ VALIDACIÓN BÁSICA ═══
                     if not placa or placa.lower() == "nan":
@@ -391,8 +660,6 @@ def validar_registro(cedula_asoc, cedula_prop, placa):
     palabras_invalidas = [
         "sin información", 
         "sin info",
-        "n/a",
-        "na",
         "null",
     ]
     
@@ -597,8 +864,9 @@ def procesar_reintentos_finales_pendientes(driver, datos_validos, max_intentos=5
                               resultado.get("datos_vehiculo"), resultado.get("datos_soat"), 
                               resultado.get("datos_técnicos"))
                 
-                # Guardar en sheets
-                guardar_en_sheets([resultado])
+                # Guardar en sheets (ACTUALIZAR fila existente)
+                guardar_en_sheets([resultado], actualizar_existente=True)
+                escribir_datos_vehiculo_en_sheets(resultado.get("datos_vehiculo", {}), cedula_a, placa)
                 guardar_resultado_en_resultados(cedula_a, cedula_p, placa, cedula_a, "Exitoso")
                 
                 resultados_finales["recuperados"].append({
@@ -629,7 +897,8 @@ def procesar_reintentos_finales_pendientes(driver, datos_validos, max_intentos=5
                                   resultado_prop.get("datos_vehiculo"), resultado_prop.get("datos_soat"),
                                   resultado_prop.get("datos_técnicos"))
                     
-                    guardar_en_sheets([resultado_prop])
+                    guardar_en_sheets([resultado_prop], actualizar_existente=True)
+                    escribir_datos_vehiculo_en_sheets(resultado_prop.get("datos_vehiculo", {}), cedula_a, placa)
                     guardar_resultado_en_resultados(cedula_a, cedula_p, placa, cedula_p, "Exitoso")
                     
                     resultados_finales["recuperados"].append({
@@ -665,6 +934,10 @@ def procesar_reintentos_finales_pendientes(driver, datos_validos, max_intentos=5
                 json.dump(estado, f, indent=2, ensure_ascii=False)
             
             guardar_resultado_en_resultados(cedula_a, cedula_p, placa, cedula_a, "Falló - Sin personas")
+
+            # ⭐ NUEVO: Guardar en hoja "Sin asociados"
+            fecha_actual = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+            
             
             resultados_finales["sin_personas_confirmado"].append({
                 "placa": placa,
@@ -954,6 +1227,12 @@ def guardar_resultado_en_resultados(cedula_asociado, cedula_propietario, placa, 
 
 
 
+
+
+
+
+
+
 def escribir_datos_vehiculo_sheets(datos_vehiculo, fila_destino=None):
     """
     Escribe los datos del vehículo en la hoja 'Datos Vehiculo' de Google Sheets.
@@ -1027,8 +1306,13 @@ def escribir_datos_vehiculo_sheets(datos_vehiculo, fila_destino=None):
 
 # ==================== FUNCIÓN MODIFICADA: guardar_en_sheets ====================
 
-def guardar_en_sheets(resultados):
-    """Guarda los resultados en Google Sheets - Cilindraje en columna D"""
+def guardar_en_sheets(resultados, actualizar_existente=False):
+    """
+    Guarda los resultados en Google Sheets - Cilindraje en columna D
+    
+    Si actualizar_existente=True: Busca la placa y actualiza la fila existente
+    Si actualizar_existente=False: Agrega nueva fila al final
+    """
     try:
         SCOPES = [
             "https://spreadsheets.google.com/feeds",
@@ -1045,7 +1329,7 @@ def guardar_en_sheets(resultados):
         sheet = client.open_by_key("1vs414iH3QVeLoTcY2CExg4kD9eCkXZRRfax_WTlUXPk")
         worksheet = sheet.worksheet("Datos Runt")
 
-        filas = []
+        # ═══ PROCESAR CADA RESULTADO ═══
         for r in resultados:
             # SOAT: 7 columnas
             soat_data = r.get("datos_soat")
@@ -1066,24 +1350,112 @@ def guardar_en_sheets(resultados):
             # L-R: RTM (7 columnas)
             # S: estado
             
-            fila = [
+            fila_valores = [
                 r["Tiempo ejecucion"],  # A
                 r["cedula"],             # B
                 r["placa"],              # C
                 r.get("cilindraje", "No disponible"),  # D (NUEVO - independiente)
             ] + soat_data + rtm_data + [r["estado"]]   # E en adelante
             
-            filas.append(fila)
+            placa = r["placa"]
+            
+            # ═══ OBTENER TODAS LAS FILAS PARA BUSCAR PLACA ═══
+            todas_filas = worksheet.get_all_values()
+            logging.info(f"📊 Buscando placa {placa} en {len(todas_filas)} filas...")
+            
+            # ═══ BUSCAR LA FILA DONDE ESTÁ ESTA PLACA (columna C = índice 2) ═══
+            numero_fila_existente = None
+            
+            for idx, fila in enumerate(todas_filas):
+                if len(fila) > 2:  # Asegurar que tiene al menos 3 columnas
+                    placa_en_fila = fila[2].strip() if fila[2] else ""
+                    
+                    if placa_en_fila == placa.strip():
+                        numero_fila_existente = idx + 1  # +1 porque Google Sheets es 1-indexed
+                        logging.info(f"🔍 ¡PLACA ENCONTRADA en fila {numero_fila_existente}!")
+                        break
+            
+            # ═══ ACTUALIZAR O CREAR NUEVA ═══
+            if numero_fila_existente and actualizar_existente:
+                # ⭐ ACTUALIZAR FILA EXISTENTE (COMPLETA, SIN ROMPER ORDEN)
+                logging.info(f"\n🔄 ACTUALIZANDO fila {numero_fila_existente}")
+                logging.info(f"   Placa: {placa}")
+                logging.info(f"   Tiempo: {r['Tiempo ejecucion']}")
+                logging.info(f"   Estado: {r['estado']}")
+                
+                # Calcular el rango dinámicamente (A:S o más allá si hay más columnas)
+                num_columnas = len(fila_valores)
+                col_final = chr(64 + num_columnas)  # A=65, B=66, etc.
+                
+                rango = f"A{numero_fila_existente}:{col_final}{numero_fila_existente}"
+                
+                try:
+                    worksheet.update([fila_valores], range_name=rango, value_input_option="RAW")
+                    logging.info(f"✅ FILA ACTUALIZADA en {rango}")
+                    logging.info(f"   ✓ Tiempo ejecucion: {r['Tiempo ejecucion']}")
+                    logging.info(f"   ✓ Cedula: {r['cedula']}")
+                    logging.info(f"   ✓ Placa: {placa}")
+                    logging.info(f"   ✓ Cilindraje: {r.get('cilindraje', 'No disponible')}")
+                    logging.info(f"   ✓ Estado: {r['estado']}")
+                    
+                except Exception as e:
+                    logging.error(f"❌ Error en update: {e}")
+                    logging.warning("🔄 Intentando método alternativo...")
+                    
+                    # Método alternativo: actualizar celda por celda
+                    for col_num, valor in enumerate(fila_valores, start=1):
+                        try:
+                            worksheet.update_cell(numero_fila_existente, col_num, valor)
+                            time.sleep(0.05)
+                        except Exception as cell_error:
+                            logging.warning(f"⚠️ Error actualizando celda ({numero_fila_existente},{col_num}): {cell_error}")
+                    
+                    logging.info(f"✅ Fila actualizada (método celda por celda)")
+            
+            elif numero_fila_existente and not actualizar_existente:
+                # ⭐ SI LA PLACA EXISTE PERO NO QUEREMOS ACTUALIZAR
+                logging.info(f"⏭️  Placa {placa} ya existe en fila {numero_fila_existente}")
+                logging.info(f"   (actualizar_existente={actualizar_existente}, saltando...)")
+            
+            else:
+                # ⭐ CREAR NUEVA FILA (NO EXISTE LA PLACA)
+                fila_nueva = len(todas_filas) + 1
+                
+                if fila_nueva < 3:
+                    fila_nueva = 3
+                
+                logging.info(f"\n📝 CREANDO NUEVA FILA {fila_nueva}")
+                logging.info(f"   (Placa {placa} no existía previamente)")
+                
+                num_columnas = len(fila_valores)
+                col_final = chr(64 + num_columnas)
+                
+                rango = f"A{fila_nueva}:{col_final}{fila_nueva}"
+                
+                try:
+                    worksheet.update([fila_valores], range_name=rango, value_input_option="RAW")
+                    logging.info(f"✅ NUEVA FILA INSERTADA en {rango}")
+                    logging.info(f"   ✓ Placa: {placa}")
+                    logging.info(f"   ✓ Estado: {r['estado']}")
+                    
+                except Exception as e:
+                    logging.error(f"❌ Error en insert: {e}")
+                    logging.warning("🔄 Intentando método alternativo...")
+                    
+                    for col_num, valor in enumerate(fila_valores, start=1):
+                        try:
+                            worksheet.update_cell(fila_nueva, col_num, valor)
+                            time.sleep(0.05)
+                        except Exception as cell_error:
+                            logging.warning(f"⚠️ Error insertando en ({fila_nueva},{col_num}): {cell_error}")
+                    
+                    logging.info(f"✅ Nueva fila insertada (método celda por celda)")
 
-        fila_inicio = max(len(worksheet.get_all_values()) + 1, 3)
-        rango_inicio = f"A{fila_inicio}"
-
-        worksheet.update(values=filas, range_name=rango_inicio, value_input_option="RAW")
-
-        logging.info(f"✅ Se guardaron {len(filas)} filas en Google Sheets con cilindraje en columna D")
+        logging.info(f"\n✅ PROCESO DE GUARDADO COMPLETADO")
 
     except Exception as e:
-        logging.error(f"❌ Error al guardar en Google Sheets: {e}")
+        logging.error(f"❌ Error grave al guardar en Google Sheets: {e}", exc_info=True)
+
 # ==================== FIN FUNCIÓN MODIFICADA ====================
 
 
@@ -2230,6 +2602,11 @@ def procesar_consulta_interno(driver, cedula, placa, fila_numero, es_reintento=F
 
             # ═══ LLENAR PLACA ═══
             try:
+                # 🔧 NORMALIZAR PLACA ANTES DE ESCRIBIR
+                placa_normalizada = normalizar_placa(placa)
+                if placa_normalizada != str(placa).strip().upper():
+                    logging.info(f"🔧 Placa original: '{placa}' → Normalizada: '{placa_normalizada}'")
+                
                 placa_input = WebDriverWait(driver, 10).until(
                     EC.element_to_be_clickable((By.CSS_SELECTOR, 'input[formcontrolname="placa"]'))
                 )
@@ -2241,11 +2618,11 @@ def procesar_consulta_interno(driver, cedula, placa, fila_numero, es_reintento=F
                 limpiar_campo_input(driver, placa_input, "PLACA")
                 time.sleep(0.5)
                 
-                for char in str(placa).strip():
+                for char in placa_normalizada:
                     placa_input.send_keys(char)
                     time.sleep(0.1)
                 
-                logging.info(f"✅ Placa escrita: {placa}")
+                logging.info(f"✅ Placa escrita: {placa_normalizada}")
                 time.sleep(0.5)
             except Exception as e:
                 logging.error(f"❌ Error al llenar placa: {e}")
@@ -2368,6 +2745,11 @@ def procesar_consulta_interno(driver, cedula, placa, fila_numero, es_reintento=F
                                     "datos_técnicos": ["No disponible"] * 7
                                 }
                                 agregar_registro_procesado(cedula, placa, "Exitoso - Sin personas", None, ["No disponible"] * 7, ["No disponible"] * 7)
+                                
+                                # ⭐ NUEVO: Guardar en hoja "Sin asociados"
+                                # Buscar cedula_propietario correspondiente
+                                fecha_actual = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+
                                 return resultado, fila_numero
 
                             elif error_detectado == "error_desconocido":
@@ -2460,13 +2842,44 @@ def main():
     driver.maximize_window()
 
     try:
-        # ═══ CARGAR DATOS Y VALIDAR ═══
+        # ═══ 🔍 PASO 1: COMPARAR PLACAS ORIGEN vs DESTINO ═══
+        placas_faltantes, placas_procesadas, reporte_comparacion = comparar_placas_origen_vs_destino()
+        
+        if "error" in reporte_comparacion:
+            logging.warning(f"⚠️  Error en comparación, continuando con proceso normal...")
+            placas_faltantes = None
+        
+        # ═══ 📥 PASO 2: CARGAR DATOS Y VALIDAR ═══
         datos_brutos = obtener_datos_unicos()
         datos_validos, datos_invalidos = filtrar_datos_validos(datos_brutos)
         
         if not datos_validos:
             logging.info(f"\n{'='*70}")
             logging.info(f"❌ NO HAY REGISTROS VÁLIDOS POR PROCESAR")
+            logging.info(f"   Total cargado: {len(datos_brutos)}")
+            logging.info(f"   Todos tienen datos incompletos")
+            logging.info(f"{'='*70}\n")
+            return
+        
+        # ═══ 🔧 PASO 3: FILTRAR SOLO PLACAS FALTANTES ═══
+        if placas_faltantes is not None and len(placas_faltantes) > 0:
+            logging.info(f"\n{'='*70}")
+            logging.info(f"🔧 FILTRANDO DATOS: SOLO PLACAS FALTANTES")
+            logging.info(f"{'='*70}\n")
+            
+            datos_validos, stats_filtrado = filtrar_datos_por_placas_faltantes(datos_validos, placas_faltantes)
+            
+            if not datos_validos:
+                logging.info(f"\n{'='*70}")
+                logging.info(f"✅ TODAS LAS PLACAS DE GOOGLE SHEETS YA ESTÁN PROCESADAS")
+                logging.info(f"   Total procesadas: {reporte_comparacion['procesadas']}")
+                logging.info(f"   Completado: {reporte_comparacion['porcentaje_completado']:.1f}%")
+                logging.info(f"{'='*70}\n")
+                return
+        else:
+            logging.info(f"\n⚠️  No se pudo hacer comparación, procesando todos los datos válidos...")
+        
+        # ═══ 📊 RESTO DEL CÓDIGO ORIGINAL (SIN CAMBIOS) ═══
             logging.info(f"   Total cargado: {len(datos_brutos)}")
             logging.info(f"   Todos tienen datos incompletos")
             logging.info(f"{'='*70}\n")
@@ -2631,7 +3044,7 @@ def main():
                 if resultado_reintento and resultado_reintento.get("estado") == "Exitoso":
                     agregar_resultado_tracking(tracking_resultados, 2, placa_reintento, cedula_reintento, "exitoso")
                     logging.info(f"✅ Recuperado en intento 2: {placa_reintento}")
-                    guardar_en_sheets([resultado_reintento])
+                    guardar_en_sheets([resultado_reintento], actualizar_existente=True)
                     guardar_estado(cedula_reintento, placa_reintento, "Exitoso", 0, len(datos_por_procesar))
                 
                 elif resultado_reintento and resultado_reintento.get("estado") == "Exitoso - Sin personas asociadas":
@@ -2650,7 +3063,7 @@ def main():
                     if resultado_con_prop and resultado_con_prop.get("estado") == "Exitoso":
                         agregar_resultado_tracking(tracking_resultados, 2, placa_reintento, cedula_reintento, "exitoso")
                         logging.info(f"✅ Recuperado en intento 2 (con propietario): {placa_reintento}")
-                        guardar_en_sheets([resultado_con_prop])
+                        guardar_en_sheets([resultado_con_prop], actualizar_existente=True)
                         guardar_estado(cedula_reintento, placa_reintento, "Exitoso", 0, len(datos_por_procesar))
                     else:
                         # ⭐ NUEVO: Confirmar sin personas y TERMINAR
@@ -2712,7 +3125,7 @@ def main():
                 if resultado_reintento and resultado_reintento.get("estado") == "Exitoso":
                     agregar_resultado_tracking(tracking_resultados, 3, placa_reintento, cedula_reintento, "exitoso")
                     logging.info(f"✅ Recuperado en intento 3: {placa_reintento}")
-                    guardar_en_sheets([resultado_reintento])
+                    guardar_en_sheets([resultado_reintento], actualizar_existente=True)
                     guardar_estado(cedula_reintento, placa_reintento, "Exitoso", 0, len(datos_por_procesar))
                 else:
                     agregar_resultado_tracking(tracking_resultados, 3, placa_reintento, cedula_reintento, 
@@ -2725,16 +3138,16 @@ def main():
                 # ═══ GENERAR REPORTE FINAL DE INTENTOS 1-3 ═══
         generar_reporte_final(tracking_resultados)
         
-        # 🔴 FASE FINAL: REINTENTAR PENDIENTES PARA CONFIRMAR ESTADO
-        logging.info(f"\n\n{'='*70}")
-        logging.info(f"⭐ INICIANDO FASE FINAL: VALIDAR PENDIENTES")
-        logging.info(f"{'='*70}\n")
+        # # 🔴 FASE FINAL: REINTENTAR PENDIENTES PARA CONFIRMAR ESTADO
+        # logging.info(f"\n\n{'='*70}")
+        # logging.info(f"⭐ INICIANDO FASE FINAL: VALIDAR PENDIENTES")
+        # logging.info(f"{'='*70}\n")
         
-        resultados_finales = procesar_reintentos_finales_pendientes(
-            driver,
-            datos_validos,
-            max_intentos=5  # ← Máximo 5 intentos por pendiente
-        )
+        # resultados_finales = procesar_reintentos_finales_pendientes(
+        #     driver,
+        #     datos_validos,
+        #     max_intentos=5  # ← Máximo 5 intentos por pendiente
+        # )
         
         # ═════════════════════════════════════════════════════════════
         
