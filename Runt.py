@@ -306,24 +306,20 @@ def obtener_datos_unicos():
                 for row_idx, fila in enumerate(todas_filas[:3]):
                     logging.info(f"      Fila {row_idx}: {fila}")
                 
-                # ═══ LEER COLUMNAS CON VALIDACIÓN ═══
-                cedulas_asociado = worksheet.col_values(2)   # Columna B (índice 1)
-                cedulas_propietario = worksheet.col_values(4) # Columna D (índice 3)
-                placas = worksheet.col_values(6)              # Columna F (índice 5)
-                
-                logging.info(f"   📋 Columna B (Cédula Asociado): {cedulas_asociado[:3]}")
-                logging.info(f"   📋 Columna D (Cédula Propietario): {cedulas_propietario[:3]}")
-                logging.info(f"   📋 Columna F (Placa): {placas[:3]}")
+                # ═══ LOG DIAGNÓSTICO ═══
+                if len(todas_filas) > 1:
+                    logging.info(f"   📋 Columna B (Cédula Asociado): {[r[1] if len(r) > 1 else '' for r in todas_filas[:3]]}")
+                    logging.info(f"   📋 Columna D (Cédula Propietario): {[r[3] if len(r) > 3 else '' for r in todas_filas[:3]]}")
+                    logging.info(f"   📋 Columna F (Placa): {[r[5] if len(r) > 5 else '' for r in todas_filas[:3]]}")
                 
                 registros_sheet = 0
                 
-                # ═══ PROCESAR FILAS (saltando encabezado en fila 0) ═══
-                min_len = min(len(cedulas_asociado), len(cedulas_propietario), len(placas))
-                
-                for i in range(1, min_len):  # Comienza en 1 para saltar encabezado
-                    cedula_asoc = str(cedulas_asociado[i]).strip()
-                    cedula_prop = str(cedulas_propietario[i]).strip()
-                    placa = str(placas[i]).strip()
+                # ═══ PROCESAR FILAS usando get_all_values() para no perder filas
+                # con celdas vacías al final de alguna columna ═══
+                for i, fila in enumerate(todas_filas[1:], start=1):  # Comienza en 1 para saltar encabezado
+                    cedula_asoc = str(fila[1]).strip() if len(fila) > 1 else ""
+                    cedula_prop = str(fila[3]).strip() if len(fila) > 3 else ""
+                    placa = str(fila[5]).strip() if len(fila) > 5 else ""
                     
                     # ═══ VALIDACIÓN BÁSICA ═══
                     if not placa or placa.lower() == "nan":
@@ -331,7 +327,6 @@ def obtener_datos_unicos():
                     
                     if not cedula_asoc or cedula_asoc.lower() == "nan":
                         continue
-                    
                     
                     # ═══ PERMITIR DUPLICADOS ENTRE HOJAS ═══
                     datos.append((cedula_asoc, cedula_prop, placa, i + 1, nombre_sheet))
